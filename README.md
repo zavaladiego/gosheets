@@ -13,7 +13,7 @@ GoSheets is a simple Go package that provides basic functionalities to interact 
 2. **Read Data from Google Sheets:**
 
     ```go
-    data, err := gs.ReadData("Sheet1!A1:B2")
+    data, err := gs.ReadData("Sheet1!A:F")
     ```
 
 3. **Add Data to Google Sheets:**
@@ -23,13 +23,13 @@ GoSheets is a simple Go package that provides basic functionalities to interact 
         {"Value1", "Value2"},
         {"Value3", "Value4"},
     }
-    err := gs.AddData(values)
+    err := gs.AddData("Sheet1", "A1", values)
     ```
 
 4. **Delete Row from Google Sheets:**
 
     ```go
-    err := gs.DeleteRow(data, "Value", "A")
+    err := gs.DeleteRow(data, "value", "A")
     ```
 
 ## Installation
