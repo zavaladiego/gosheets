@@ -3,7 +3,6 @@ package gosheets
 import (
 	"context"
 	"fmt"
-	"log"
 	"os"
 	"strings"
 
@@ -12,32 +11,44 @@ import (
 	"google.golang.org/api/sheets/v4"
 )
 
-var sheetsService *sheets.Service
+type GoogleSheetsClient struct {
+	spreadsheetID string
+	service       *sheets.Service
+}
 
-// InitGoogleSheetsService initializes the Google Sheets service.
-// It uses a Google Developers service account JSON key file to read 
-// the credentials that authorize and authenticate the requests. 
-// Create a service account on "Credentials" for your project at 
-// https://console.developers.google.com to download a JSON key file.
-// 
+// NewGoogleSheetsClient initializes a Google Sheets client with the provided
+// credentials and spreadsheet ID. It uses a Google Developers service account
+// JSON key file to authenticate the requests. You can create a service account
+// for your project at https://console.developers.google.com and download a JSON key file.
+//
 // Parameters:
 //   - credentials: The path to the JSON credentials file for authentication.
-func InitGoogleSheetsService(credentials string) {
+//   - spreadsheetID: The ID of the Google Sheets spreadsheet to interact with.
+//
+// Returns:
+//   - A pointer to a GoogleSheetsClient instance representing the initialized client.
+//   - An error if there was a problem initializing the client, nil otherwise.
+func NewGoogleSheetsClient(credentials string, spreadsheetID string) (*GoogleSheetsClient, error) {
 	creds, err := os.ReadFile(credentials)
 	if err != nil {
-		log.Fatalf("Unable to read credentials file: %v", err)
+		return nil, fmt.Errorf("unable to read credentials file: %v", err)
 	}
 
 	config, err := google.JWTConfigFromJSON(creds, sheets.SpreadsheetsScope)
 	if err != nil {
-		log.Fatalf("Unable to create JWT config: %v", err)
+		return nil, fmt.Errorf("unable to create JWT config: %v", err)
 	}
 
 	client := config.Client(context.Background())
-	sheetsService, err = sheets.NewService(context.Background(), option.WithHTTPClient(client))
+	svc, err := sheets.NewService(context.Background(), option.WithHTTPClient(client))
 	if err != nil {
-		log.Fatalf("Unable to create Google Sheets service: %v", err)
+		return nil, fmt.Errorf("unable to create Google Sheets service: %v", err)
 	}
+
+	return &GoogleSheetsClient{
+		spreadsheetID: spreadsheetID,
+		service:       svc,
+	}, nil
 }
 
 // ReadData reads data from a Google Sheets spreadsheet.
@@ -48,8 +59,8 @@ func InitGoogleSheetsService(credentials string) {
 //
 // Returns:
 //   - A 2D slice representing the read data, or an error if there was a problem.
-func ReadData(spreadsheetID, readRange string) ([][]interface{}, error) {
-	resp, err := sheetsService.Spreadsheets.Values.Get(spreadsheetID, readRange).Do()
+func (gs *GoogleSheetsClient) ReadData(readRange string) ([][]interface{}, error) {
+	resp, err := gs.service.Spreadsheets.Values.Get(gs.spreadsheetID, readRange).Do()
 	if err != nil {
 		return nil, fmt.Errorf("unable to retrieve data from Google Sheets: %v", err)
 	}
@@ -59,18 +70,20 @@ func ReadData(spreadsheetID, readRange string) ([][]interface{}, error) {
 // AddData adds data to a Google Sheets spreadsheet.
 //
 // Parameters:
-//   - spreadsheetID: The ID of the spreadsheet where the data will be added.
+//   - sheetName: The name of the sheet where the data will be added.
+//   - startCell: The starting cell used to search for existing data and find a "table"
+//     within that range where the data will be appended (e.g., "A1").
 //   - values: A 2D slice representing the data to be added. Each inner slice
 //     represents a row of data, with each element representing a cell value.
 //
 // Returns:
 //   - An error if there was a problem adding the data to the spreadsheet, nil otherwise.
-func AddData(spreadsheetID string, values [][]interface{}) error {
+func (gs *GoogleSheetsClient) AddData(sheetName string, startCell string, values [][]interface{}) error {
 	valueRange := &sheets.ValueRange{
 		Values: values,
 	}
 
-	_, err := sheetsService.Spreadsheets.Values.Append(spreadsheetID, "Hoja 1!A1", valueRange).ValueInputOption("RAW").Do()
+	_, err := gs.service.Spreadsheets.Values.Append(gs.spreadsheetID, sheetName+"!"+startCell, valueRange).ValueInputOption("RAW").Do()
 	if err != nil {
 		return fmt.Errorf("unable to add data to Google Sheets: %v", err)
 	}
@@ -107,7 +120,7 @@ func DataToString(data [][]interface{}) string {
 //
 // Returns:
 //   - An error if there was a problem deleting the row, nil otherwise.
-func DeleteRow(spreadsheetID string, data [][]interface{}, value, column string) error {
+func (gs *GoogleSheetsClient) DeleteRow(data [][]interface{}, value, column string) error {
 	rowIndex := findRowNumber(data, value, column)
 	if rowIndex == -1 {
 		return fmt.Errorf("unable to find the value %v in column %v", value, column)
@@ -130,7 +143,7 @@ func DeleteRow(spreadsheetID string, data [][]interface{}, value, column string)
 		Requests: requests,
 	}
 
-	_, err := sheetsService.Spreadsheets.BatchUpdate(spreadsheetID, batchUpdate).Do()
+	_, err := gs.service.Spreadsheets.BatchUpdate(gs.spreadsheetID, batchUpdate).Do()
 	if err != nil {
 		return fmt.Errorf("unable to delete row from Google Sheets: %v", err)
 	}
