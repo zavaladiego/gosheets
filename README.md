@@ -35,7 +35,7 @@ GoSheets is a simple Go package that provides basic functionalities to interact 
 ## Installation
 
 ```bash
-go get -u github.com/dzvCode/gosheets
+go get github.com/dzvCode/gosheets@latest
 ```
 
 ## Requirements
