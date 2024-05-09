@@ -28,13 +28,8 @@ type GoogleSheetsClient struct {
 // Returns:
 //   - A pointer to a GoogleSheetsClient instance representing the initialized client.
 //   - An error if there was a problem initializing the client, nil otherwise.
-func NewGoogleSheetsClient(credentials string, spreadsheetID string) (*GoogleSheetsClient, error) {
-	creds, err := os.ReadFile(credentials)
-	if err != nil {
-		return nil, fmt.Errorf("unable to read credentials file: %v", err)
-	}
-
-	config, err := google.JWTConfigFromJSON(creds, sheets.SpreadsheetsScope)
+func NewGoogleSheetsClient(credentials []byte, spreadsheetID string) (*GoogleSheetsClient, error) {
+	config, err := google.JWTConfigFromJSON(credentials, sheets.SpreadsheetsScope)
 	if err != nil {
 		return nil, fmt.Errorf("unable to create JWT config: %v", err)
 	}
