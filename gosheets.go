@@ -3,7 +3,6 @@ package gosheets
 import (
 	"context"
 	"fmt"
-	"os"
 	"strings"
 
 	"golang.org/x/oauth2/google"
