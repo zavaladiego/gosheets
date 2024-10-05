@@ -10,9 +10,15 @@ import (
 	"google.golang.org/api/sheets/v4"
 )
 
+// GoogleSheetsClient represents a client for interacting with Google Sheets.
+//
+//   - The service field is used to interact with the Google Sheets API.
+//   - The spreadsheetID field is used to store the ID of the Google Sheets spreadsheet to interact with. You can find this ID in the URL of the spreadsheet. For example, the spreadsheet ID in the URL https://docs.google.com/spreadsheets/d/abc1234567/edit#gid=0 is "abc1234567".
+//   - The sheetName field is used to store the name of the sheet to interact with in the Google Sheets spreadsheet.
 type GoogleSheetsClient struct {
-	spreadsheetID string
 	service       *sheets.Service
+	spreadsheetID string
+	sheetName     string
 }
 
 // NewGoogleSheetsClient initializes a Google Sheets client with the provided
@@ -22,12 +28,11 @@ type GoogleSheetsClient struct {
 //
 // Parameters:
 //   - credentials: The path to the JSON credentials file for authentication.
-//   - spreadsheetID: The ID of the Google Sheets spreadsheet to interact with.
 //
 // Returns:
 //   - A pointer to a GoogleSheetsClient instance representing the initialized client.
 //   - An error if there was a problem initializing the client, nil otherwise.
-func NewGoogleSheetsClient(credentials []byte, spreadsheetID string) (*GoogleSheetsClient, error) {
+func NewGoogleSheetsClient(credentials []byte) (*GoogleSheetsClient, error) {
 	config, err := google.JWTConfigFromJSON(credentials, sheets.SpreadsheetsScope)
 	if err != nil {
 		return nil, fmt.Errorf("unable to create JWT config: %v", err)
@@ -40,20 +45,65 @@ func NewGoogleSheetsClient(credentials []byte, spreadsheetID string) (*GoogleShe
 	}
 
 	return &GoogleSheetsClient{
-		spreadsheetID: spreadsheetID,
-		service:       svc,
+		service: svc,
 	}, nil
 }
 
-// ReadData reads data from a Google Sheets spreadsheet.
+// SetSpreadsheetID sets the spreadsheet ID in the GoogleSheetsClient struct.
 //
 // Parameters:
-//   - spreadsheetID: The ID of the spreadsheet from which to read data.
-//   - readRange: The range of cells to read data from (e.g., "Sheet1!A1:B2").
+//   - The ID of the Google Sheets spreadsheet to interact with.
+func (gs *GoogleSheetsClient) SetSpreadsheetID(spreadsheetID string) {
+	gs.spreadsheetID = spreadsheetID
+}
+
+// SetSheetName sets the sheet name in the GoogleSheetsClient struct.
+//
+// Parameters:
+//   - The name of the sheet to interact with in the Google Sheets spreadsheet.
+func (gs *GoogleSheetsClient) SetSheetName(sheetName string) {
+	gs.sheetName = sheetName
+}
+
+// getSheetID retrieves the sheet ID of current sheet set in the GoogleSheetsClient struct.
+//
+// Returns:
+//   - The ID of the sheet, or an error if the sheet was not found.
+func (gs *GoogleSheetsClient) getSheetID() (int64, error) {
+	err := validateClientFields(gs)
+	if err != nil {
+		return -1, err
+	}
+
+	spreadsheet, err := gs.service.Spreadsheets.Get(gs.spreadsheetID).Do()
+	if err != nil {
+		return -1, fmt.Errorf("unable to retrieve spreadsheet: %v", err)
+	}
+
+	for _, sheet := range spreadsheet.Sheets {
+		if sheet.Properties.Title == gs.sheetName {
+			return sheet.Properties.SheetId, nil
+		}
+	}
+
+	return -1, fmt.Errorf("sheet with name %s not found", gs.sheetName)
+}
+
+// ReadData reads data from the current set sheet in the GoogleSheetsClient struct.
+//
+// Parameters:
+//   - readRange: The range of cells to read data from (e.g., "A1:B2").
 //
 // Returns:
 //   - A 2D slice representing the read data, or an error if there was a problem.
 func (gs *GoogleSheetsClient) ReadData(readRange string) ([][]interface{}, error) {
+	err := validateClientFields(gs)
+	if err != nil {
+		return nil, err
+	}
+
+	readRange = gs.sheetName + "!" + readRange
+
 	resp, err := gs.service.Spreadsheets.Values.Get(gs.spreadsheetID, readRange).Do()
 	if err != nil {
 		return nil, fmt.Errorf("unable to retrieve data from Google Sheets: %v", err)
@@ -61,25 +111,134 @@ func (gs *GoogleSheetsClient) ReadData(readRange string) ([][]interface{}, error
 	return resp.Values, nil
 }
 
-// AddData adds data to a Google Sheets spreadsheet.
-//
+// AppendData appends data to the end of the current set sheet in the GoogleSheetsClient struct.
 // Parameters:
-//   - sheetName: The name of the sheet where the data will be added.
-//   - startCell: The starting cell used to search for existing data and find a "table"
-//     within that range where the data will be appended (e.g., "A1").
-//   - values: A 2D slice representing the data to be added. Each inner slice
+//   - data: A 2D slice representing the data to be added. Each inner slice
 //     represents a row of data, with each element representing a cell value.
+//   - range_: The cell used to search for existing data and find a "table"
+//     within that range where the data will be appended (e.g., "A1").
 //
 // Returns:
 //   - An error if there was a problem adding the data to the spreadsheet, nil otherwise.
-func (gs *GoogleSheetsClient) AddData(sheetName string, startCell string, values [][]interface{}) error {
-	valueRange := &sheets.ValueRange{
-		Values: values,
+func (gs *GoogleSheetsClient) AppendData(data [][]interface{}, range_ string) error {
+	err := validateClientFields(gs)
+	if err != nil {
+		return err
 	}
 
-	_, err := gs.service.Spreadsheets.Values.Append(gs.spreadsheetID, sheetName+"!"+startCell, valueRange).ValueInputOption("RAW").Do()
+	valueRange := &sheets.ValueRange{
+		Values: data,
+	}
+
+	range_ = gs.sheetName + "!" + range_
+	_, err = gs.service.Spreadsheets.Values.Append(gs.spreadsheetID, range_, valueRange).ValueInputOption("RAW").Do()
 	if err != nil {
 		return fmt.Errorf("unable to add data to Google Sheets: %v", err)
+	}
+	return nil
+}
+
+// InsertRowsAtPosition inserts a specified number of rows after a specified row in current set sheet in the GoogleSheetsClient struct. The position is 1-based, with 1 being the header row. Note: Is not possible to insert rows before the header row, giving a position of 0 will result in an error.
+//
+// Parameters:
+//   - data: The data to insert into the spreadsheet.
+//   - position: The index of the row after which the new rows will be inserted.
+//
+// Returns:
+//   - An error if there was a problem inserting the rows, nil otherwise.
+func (gs *GoogleSheetsClient) InsertRowsAfterPosition(data [][]interface{}, position int64) error {
+	sheetID, err := gs.getSheetID()
+	if err != nil {
+		return fmt.Errorf("unable to retrieve sheet ID: %v", err)
+	}
+
+	numRows := int64(len(data))
+
+	insertRequest := &sheets.Request{
+		InsertDimension: &sheets.InsertDimensionRequest{
+			Range: &sheets.DimensionRange{
+				SheetId:    sheetID,
+				Dimension:  "ROWS",
+				StartIndex: position, // 0 is not a valid index in InsertDimensionRequest
+				EndIndex:   position + numRows,
+			},
+			InheritFromBefore: false,
+		},
+	}
+
+	batchUpdateRequest := &sheets.BatchUpdateSpreadsheetRequest{
+		Requests: []*sheets.Request{insertRequest},
+	}
+
+	_, err = gs.service.Spreadsheets.BatchUpdate(gs.spreadsheetID, batchUpdateRequest).Do()
+	if err != nil {
+		return fmt.Errorf("unable to insert rows at position: %v", err)
+	}
+
+	err = gs.AppendData(data, "A"+fmt.Sprint(position))
+	if err != nil {
+		return fmt.Errorf("unable to append data to Google Sheets: %v", err)
+	}
+
+	return nil
+}
+
+// InsertRowsAtBeginning inserts a specified number of rows at the beginning of current set sheet in the GoogleSheetsClient struct.The beginning of the sheet is considered to be the row after the header row. Note: This function assumes that the header row is the first row in the sheet.
+//
+// Parameters:
+//   - data: The data to insert into the spreadsheet.
+//
+// Returns:
+//   - An error if there was a problem inserting the rows, nil otherwise.
+func (gs *GoogleSheetsClient) InsertRowsAtBeginning(data [][]interface{}) error {
+	err := gs.InsertRowsAfterPosition(data, 1)
+	if err != nil {
+		return fmt.Errorf("unable to insert rows at beginning: %v", err)
+	}
+
+	return nil
+}
+
+// DeleteRow deletes the first occurrence of a row from a current set sheet in the GoogleSheetsClient struct. Note: This function assumes that the header row is the first row in the sheet.
+//
+// Parameters:
+//   - data: The 2D slice representing the data to search through. Use the ReadData method to get this data.
+//   - column: The column in which to apply the filter.
+//   - value: The value to filter on.
+//
+// Returns:
+//   - An error if there was a problem deleting the row, nil otherwise.
+func (gs *GoogleSheetsClient) DeleteRow(data [][]interface{}, column, value string) error {
+	rowIndex := findRowNumber(data, column, value)
+	if rowIndex == -1 {
+		return fmt.Errorf("unable to find the value %v in column %v", value, column)
+	}
+
+	sheetID, err := gs.getSheetID()
+	if err != nil {
+		return fmt.Errorf("unable to retrieve sheet ID: %v", err)
+	}
+
+	requests := []*sheets.Request{
+		{
+			DeleteDimension: &sheets.DeleteDimensionRequest{
+				Range: &sheets.DimensionRange{
+					SheetId:    sheetID, // Sheet ID (can be 0 for the first sheet)
+					Dimension:  "ROWS",
+					StartIndex: int64(rowIndex - 1), // Index of the row to delete (subtract 1 since rows are 0-based)
+					EndIndex:   int64(rowIndex),     // Index of the next row
+				},
+			},
+		},
+	}
+
+	batchUpdate := &sheets.BatchUpdateSpreadsheetRequest{
+		Requests: requests,
+	}
+
+	_, err = gs.service.Spreadsheets.BatchUpdate(gs.spreadsheetID, batchUpdate).Do()
+	if err != nil {
+		return fmt.Errorf("unable to delete row from Google Sheets: %v", err)
 	}
 	return nil
 }
@@ -104,68 +263,28 @@ func DataToString(data [][]interface{}) string {
 	return result.String()
 }
 
-// DeleteRow deletes a row from a Google Sheets spreadsheet based on a filter.
-//
-// Parameters:
-//   - spreadsheetID: The ID of the spreadsheet from which to delete the row.
-//   - data: The 2D slice representing the data to search through.
-//   - value: The value to filter on.
-//   - column: The column in which to apply the filter.
-//
-// Returns:
-//   - An error if there was a problem deleting the row, nil otherwise.
-func (gs *GoogleSheetsClient) DeleteRow(data [][]interface{}, value, column string) error {
-	rowIndex := findRowNumber(data, value, column)
-	if rowIndex == -1 {
-		return fmt.Errorf("unable to find the value %v in column %v", value, column)
-	}
-
-	requests := []*sheets.Request{
-		{
-			DeleteDimension: &sheets.DeleteDimensionRequest{
-				Range: &sheets.DimensionRange{
-					SheetId:    0, // Sheet ID (can be 0 for the first sheet)
-					Dimension:  "ROWS",
-					StartIndex: int64(rowIndex - 1), // Index of the row to delete (subtract 1 since rows are 0-based)
-					EndIndex:   int64(rowIndex),     // Index of the next row
-				},
-			},
-		},
-	}
-
-	batchUpdate := &sheets.BatchUpdateSpreadsheetRequest{
-		Requests: requests,
-	}
-
-	_, err := gs.service.Spreadsheets.BatchUpdate(gs.spreadsheetID, batchUpdate).Do()
-	if err != nil {
-		return fmt.Errorf("unable to delete row from Google Sheets: %v", err)
-	}
-	return nil
-}
-
 // findRowNumber finds the row number containing a specific value in a given column.
 //
 // Parameters:
-//   - data: The 2D slice representing the data to search through.
-//   - value: The value to search for.
+//   - data: The 2D slice representing the data to search through. Use the ReadData method to get this data.
 //   - column: The column letter in which to search for the value.
+//   - value: The value to search for.
 //
 // Returns:
 //   - The row number (1-based index) containing the value, or -1 if not found.
-func findRowNumber(data [][]interface{}, value string, column string) int {
+func findRowNumber(data [][]interface{}, column, value string) int {
 	for i, row := range data {
-		if len(row) < columnIndex(column) {
+		if len(row) < columnIndex(column)+1 {
 			continue // Avoid index out of range error if the row does not have enough columns
 		}
 		if fmt.Sprintf("%v", row[columnIndex(column)]) == value {
-			return i + 1 // Row index is 1-based
+			return i + 1 // 1-based row index
 		}
 	}
 	return -1
 }
 
-// columnIndex converts a column letter (e.g., "A", "B", ...) to its index (0-based).
+// columnIndex converts a column letter (e.g., "A", "Z", "AA", "BX" ... "ZZZ") to its index (0-based).
 //
 // Parameters:
 //   - column: The column letter to convert.
@@ -175,11 +294,20 @@ func findRowNumber(data [][]interface{}, value string, column string) int {
 func columnIndex(column string) int {
 	column = strings.ToUpper(column)
 	index := 0
-	for i, c := range column {
+	for _, c := range column {
 		index = index*26 + int(c-'A') + 1
-		if i == 0 {
-			index--
-		}
 	}
-	return index
+	return index - 1
+}
+
+func validateClientFields(gs *GoogleSheetsClient) error {
+	if gs.spreadsheetID == "" {
+		return fmt.Errorf("spreadsheet ID not set")
+	}
+
+	if gs.sheetName == "" {
+		return fmt.Errorf("sheet name not set")
+	}
+
+	return nil
 }
