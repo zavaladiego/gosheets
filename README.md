@@ -7,15 +7,16 @@ GoSheets is a simple Go package wrapper that provides basic functionalities to i
 1. **Initialize Google Sheets Service:**
 
     ```go
-    gs, err := gosheets.NewGoogleSheetsClient("path/to/credentials.json")
+    credentials, err := os.ReadFile("path/to/credentials.json")
+    gs, err := gosheets.NewGoogleSheetsClient(credentials)
     ```
+
 2. **Set the Spreadsheet ID and sheet name:**
 
     ```go
     gs.SetSpreadsheetID("spreadsheetID")
     gs.SetSheetName("Sheet1")
     ```
-
 
 3. **Read Data from current sheet set:**
 
@@ -80,7 +81,6 @@ To use this package, ensure you have the following:
 |--|--|
 |execution time| 5.408s|
 |coverage| 95.5% of statements|
-
 
 ## Contributing
 
