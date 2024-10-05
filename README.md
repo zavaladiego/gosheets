@@ -58,7 +58,7 @@ GoSheets is a simple Go package wrapper that provides basic functionalities to i
 
     ```go
     data, err := gs.ReadData("A:F")
-    fmt.Println(gs.PrintData(data))
+    fmt.Println(gs.DataToString(data))
     ```
 
 ## Installation
